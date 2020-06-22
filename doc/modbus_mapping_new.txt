@@ -4,29 +4,58 @@ modbus_mapping_new(3)
 
 NAME
 ----
-modbus_mapping_new - allocate four arrays of bits and registers
+modbus_mapping_new - allocate arrays of bits and registers for a ModBus
+outstation.
 
 
 SYNOPSIS
 --------
-*modbus_mapping_t* modbus_mapping_new(int 'nb_bits', int 'nb_input_bits', int 'nb_registers', int 'nb_input_registers');*
+*modbus_mapping_t* modbus_mapping_new(int 'nb_bits',
+                                      int 'nb_input_bits',
+                                      int 'nb_registers',
+                                      int 'nb_input_registers',
+                                      int 'nb_files', int 'nb_records', int 'record_size');*
 
 
 DESCRIPTION
 -----------
-The *modbus_mapping_new()* function shall allocate four arrays to store bits,
-input bits, registers and inputs registers. The pointers are stored in
-modbus_mapping_t structure. All values of the arrays are initialized to zero.
+The *modbus_mapping_new()* function allocates arrays to store the current
+values of an outstations' bits and registers. The pointers are stored in a
+modbus_mapping_t structure.
+
+The structure allocated is intended to act as a data store,
+in which values are looked up each time a ModBus request is recieved by a
+server/outstation.
+
+Separate arrays are created for each type of data:
+
+* bits,
+* input bits,
+* registers,
+* input registers,
+* file registers
+
+All values of the arrays are initialized to zero.
 
 This function is equivalent to a call of the
 linkmb:modbus_mapping_new_start_address[3] function with all start addresses to
 `0`.
 
+* _nb_bits_ sets the number of binary outputs (Coils) in the structure.
+* _nb_input_bits_ sets the number of binary (Discrete) inputs in the structure.
+* _nb_registers_ sets the number of output / holding registers in the structure.
+* _nb_input_registers_ sets the number of input registers in the structure.
+* _nb_files_ sets the number of file registers in the structure.
+* _nb_records_ sets how many records each file register has.
+* _record_size_ sets the size of each record, in uint16_t words. This should
+always be 1 however?
+
 If it isn't necessary to allocate an array for a specific type of data, you can
-pass the zero value in argument, the associated pointer will be NULL.
+pass the zero value in the relevant argument, no memory will be allocated and
+the associated pointer will be NULL.
 
-This function is convenient to handle requests in a Modbus server/slave.
-
+The resulting structure should be freed with a call to
+linkmb::modbus_mapping_free[3].
 
 RETURN VALUE
 ------------

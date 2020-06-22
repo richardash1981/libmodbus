@@ -4,22 +4,28 @@ modbus_mapping_new_start_address(3)
 
 NAME
 ----
-modbus_mapping_new_start_address - allocate four arrays of bits and registers accessible from their starting addresses
+modbus_mapping_new_start_address - allocate arrays of bits and registers accessible from their starting addresses
 
 
 SYNOPSIS
 --------
-*modbus_mapping_t* modbus_mapping_new_start_address(int 'start_bits', int 'nb_bits',
-                                                    int 'start_input_bits', int 'nb_input_bits',
-                                                    int 'start_registers', int 'nb_registers',
-                                                    int 'start_input_registers', int 'nb_input_registers');*
+*modbus_mapping_t* modbus_mapping_new_start_address(unsigned int 'start_bits', unsigned int 'nb_bits',
+                                                    unsigned int 'start_input_bits', unsigned int 'nb_input_bits',
+                                                    unsigned int 'start_registers', unsigned int 'nb_registers',
+                                                    unsigned int 'start_input_registers', unsigned int 'nb_input_registers',
+                                                    unsigned int 'start_files', unsigned int 'nb_files',
+                                                    unsigned int 'nb_records',  unsigned int 'record_size');*
 
 
 DESCRIPTION
 -----------
-The _modbus_mapping_new_start_address()_ function shall allocate four arrays to
-store bits, input bits, registers and inputs registers. The pointers are stored
-in modbus_mapping_t structure. All values of the arrays are initialized to zero.
+The _modbus_mapping_new_start_address()_ function allocates arrays to store
+the current values of an outstations' bits and registers. The pointers are stored
+in a modbus_mapping_t structure. All values of the arrays are initialized to zero.
+
+The structure allocated is intended to act as a data store,
+in which values are looked up each time a ModBus request is recieved by a
+server/outstation.
 
 The different starting adresses make it possible to place the mapping at any
 address in each address space. This way, you can give access to values stored
@@ -34,10 +40,35 @@ mb_mapping = modbus_mapping_new_start_address(0, 0, 0, 0, 10000, 10, 0, 0);
 With this code, only 10 registers (`uint16_t`) are allocated.
 
 If it isn't necessary to allocate an array for a specific type of data, you can
-pass the zero value in argument, the associated pointer will be NULL.
+pass a zero value in the size argument, no memory will be allocated and the
+associated pointer will be NULL.
 
-This function is convenient to handle requests in a Modbus server/slave.
+Separate arrays are created for each type of data:
 
+* bits,
+* input bits,
+* registers,
+* input registers,
+* file registers
+
+The starting address for each type of data is set separately.
+
+* _start_bits_ sets the address of the first binary output (Coil).
+* _nb_bits_ sets the number of binary outputs (Coils) in the structure.
+* _start_input_bits_ sets the address of the first binary (Discrete) input.
+* _nb_input_bits_ sets the number of binary (Discrete) inputs in the structure.
+* _start_registers_ sets the address of the first output / holding register.
+* _nb_registers_ sets the number of output / holding registers in the structure.
+* _start_input_registers_ sets the address of the first input register.
+* _nb_input_registers_ sets the number of input registers in the structure.
+* _start_files_ sets the address of the first file register.
+* _nb_files_ sets the number of file registers in the structure.
+* _nb_records_ sets how many records each file register has.
+* _record_size_ sets the size of each record, in uint16_t words. This should
+always be 1 however?
+
+The resulting structure should be freed with a call to
+linkmb:modbus_mapping_free[3].
 
 RETURN VALUE
 ------------
@@ -60,7 +91,9 @@ EXAMPLE
 mb_mapping = modbus_mapping_new_start_address(BITS_ADDRESS, BITS_NB,
                                 INPUT_BITS_ADDRESS, INPUT_BITS_NB,
                                 REGISTERS_ADDRESS, REGISTERS_NB,
-                                INPUT_REGISTERS_ADDRESS, INPUT_REGISTERS_NB);
+                                INPUT_REGISTERS_ADDRESS, INPUT_REGISTERS_NB,
+                                FILE_REGISTERS_ADDRESS, FILE_REGISTERS_NB,
+                                FILE_REGISTERS_SIZE, 1);
 if (mb_mapping == NULL) {
     fprintf(stderr, "Failed to allocate the mapping: %s\n",
             modbus_strerror(errno));
