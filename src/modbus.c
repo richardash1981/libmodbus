@@ -1020,7 +1020,79 @@ int modbus_reply(modbus_t *ctx, const uint8_t *req,
         }
     }
         break;
+    case MODBUS_FC_READ_FILE_RECORD: {
+        address = (req[offset + 3] << 8) + req[offset + 4];
+        int mapping_address = address - mb_mapping->start_files;
+        uint16_t record_addr = (req[offset + 5] << 8) + req[offset + 6];
+        uint16_t record_len = (req[offset + 7] << 8) + req[offset + 8];
 
+        if (address < 1 || mapping_address < 0 || mapping_address > mb_mapping->nb_files) {
+            rsp_length = response_exception(
+                ctx, &sft, MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS, rsp, FALSE,
+                "Illegal file number %d in read_file_record\n", address);
+        } else if (record_addr > MODBUS_MAX_FILE_RECORD_NUMBER ||
+                   record_addr >= mb_mapping->files[mapping_address].nb_records ||
+                   record_len >= mb_mapping->files[mapping_address].record_size) {
+            rsp_length = response_exception(
+                ctx, &sft, MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE, rsp, TRUE,
+                "Illegal record %d, len 0x%0X (max %d) in read_file_record\n",
+                record_addr, record_len, mb_mapping->files[mapping_address].nb_records);
+        } else {
+            int i;
+
+            rsp_length = ctx->backend->build_response_basis(&sft, rsp);
+            rsp[rsp_length++] = record_len * 2 + 2; // data len
+            rsp[rsp_length++] = record_len * 2 + 1; // file resp len
+            rsp[rsp_length++] = 6; // reference type
+            for (i = 0; i < record_len; i++) {
+                rsp[rsp_length++] = mb_mapping->files[mapping_address].records[record_addr][i] >> 8;
+                rsp[rsp_length++] = mb_mapping->files[mapping_address].records[record_addr][i] & 0xFF;
+            }
+        }
+    }
+        break;
+    case MODBUS_FC_WRITE_FILE_RECORD: {
+        address = (req[offset + 3] << 8) + req[offset + 4];
+        int mapping_address = address - mb_mapping->start_files;
+        uint16_t record_addr = (req[offset + 5] << 8) + req[offset + 6];
+        uint16_t record_len = (req[offset + 7] << 8) + req[offset + 8];
+
+        if (address < 1 || mapping_address < 0 || mapping_address > mb_mapping->nb_files) {
+            rsp_length = response_exception(
+                ctx, &sft, MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS, rsp, FALSE,
+                "Illegal file number %d in write_file_record\n", address);
+        } else if (record_addr > MODBUS_MAX_FILE_RECORD_NUMBER ||
+                   record_addr >= mb_mapping->files[mapping_address].nb_records ||
+                   record_len >= mb_mapping->files[mapping_address].record_size) {
+            rsp_length = response_exception(
+                ctx, &sft, MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE, rsp, TRUE,
+                "Illegal record %d, len 0x%0X (max %d) in write_file_record\n",
+                record_addr, record_len, mb_mapping->files[mapping_address].nb_records);
+        } else {
+            int i;
+
+            for (i = 0; i < record_len; i++) {
+                mb_mapping->files[mapping_address].records[record_addr][i] = (req[offset + 9 + (i *2)] << 8) |
+                                                                             (req[offset + 10 + (i *2)] & 0xFF);
+            }
+
+            rsp_length = ctx->backend->build_response_basis(&sft, rsp);
+            rsp[rsp_length++] = record_len * 2 + 7; // data len
+            rsp[rsp_length++] = 6; // reference type
+            rsp[rsp_length++] = address >> 8; // file nb
+            rsp[rsp_length++] = address & 0xFF;
+            rsp[rsp_length++] = record_addr >> 8; // record nb
+            rsp[rsp_length++] = record_addr & 0xFF;
+            rsp[rsp_length++] = record_len >> 8; // record len
+            rsp[rsp_length++] = record_len & 0xFF;
+
+            for (i = 0; i < record_len; i++) {
+                rsp[rsp_length++] = mb_mapping->files[mapping_address].records[record_addr][i] >> 8;
+                rsp[rsp_length++] = mb_mapping->files[mapping_address].records[record_addr][i] & 0xFF;
+            }
+        }
+    }
+        break;
     default:
         rsp_length = response_exception(
             ctx, &sft, MODBUS_EXCEPTION_ILLEGAL_FUNCTION, rsp, TRUE,
@@ -1921,9 +1993,12 @@ modbus_mapping_t* modbus_mapping_new_start_address(
     unsigned int start_bits, unsigned int nb_bits,
     unsigned int start_input_bits, unsigned int nb_input_bits,
     unsigned int start_registers, unsigned int nb_registers,
-    unsigned int start_input_registers, unsigned int nb_input_registers)
+    unsigned int start_input_registers, unsigned int nb_input_registers,
+    unsigned int start_files, unsigned int nb_files,
+    unsigned int nb_records, unsigned int record_size)
 {
     modbus_mapping_t *mb_mapping;
+    unsigned int i, j;
 
     mb_mapping = (modbus_mapping_t *)malloc(sizeof(modbus_mapping_t));
     if (mb_mapping == NULL) {
@@ -1998,16 +2073,88 @@ modbus_mapping_t* modbus_mapping_new_start_address(
                nb_input_registers * sizeof(uint16_t));
     }
 
+    /* 5X */
+    mb_mapping->nb_files = nb_files;
+    mb_mapping->start_files = start_files;
+    if (nb_files == 0) {
+        mb_mapping->files = NULL;
+    } else {
+        mb_mapping->files = (modbus_file_t *) malloc(nb_files * sizeof(modbus_file_t));
+        if (mb_mapping->files == NULL) {
+            free(mb_mapping->tab_input_registers);
+            free(mb_mapping->tab_registers);
+            free(mb_mapping->tab_input_bits);
+            free(mb_mapping->tab_bits);
+            free(mb_mapping);
+            return NULL;
+        }
+        memset(mb_mapping->files, 0,
+               nb_files * sizeof(modbus_file_t));
+
+        for (i = 0; i < nb_files; i++) {
+            mb_mapping->files[i].nb_records = nb_records;
+            mb_mapping->files[i].record_size = record_size;
+            mb_mapping->files[i].records = (uint16_t **) malloc(nb_records * sizeof(uint16_t *));
+            if (mb_mapping->files[i].records == NULL) {
+                while (i) {
+                    free(mb_mapping->files[i--].records);
+                }
+                free(mb_mapping->files);
+                free(mb_mapping->tab_input_registers);
+                free(mb_mapping->tab_registers);
+                free(mb_mapping->tab_input_bits);
+                free(mb_mapping->tab_bits);
+                free(mb_mapping);
+                return NULL;
+            }
+            for (j = 0; j < nb_records; j++) {
+                mb_mapping->files[i].records[j] = (uint16_t *) malloc(record_size * sizeof(uint16_t));
+                if (mb_mapping->files[i].records[j] == NULL) {
+                    while (j) {
+                        free(mb_mapping->files[i].records[j--]);
+                    }
+                    while (i) {
+                        free(mb_mapping->files[i--].records);
+                    }
+                    free(mb_mapping->files);
+                    free(mb_mapping->tab_input_registers);
+                    free(mb_mapping->tab_registers);
+                    free(mb_mapping->tab_input_bits);
+                    free(mb_mapping->tab_bits);
+                    free(mb_mapping);
+                    return NULL;
+                }
+            }
+        }
+    }
+
     return mb_mapping;
 }
 
 modbus_mapping_t* modbus_mapping_new(int nb_bits, int nb_input_bits,
-                                     int nb_registers, int nb_input_registers)
+                                     int nb_registers, int nb_input_registers,
+                                     int nb_files, int nb_records, int record_size)
 {
     return modbus_mapping_new_start_address(
-        0, nb_bits, 0, nb_input_bits, 0, nb_registers, 0, nb_input_registers);
+        0, nb_bits, 0, nb_input_bits, 0, nb_registers, 0, nb_input_registers,
+        0, nb_files, nb_records, record_size);
 }
 
+void _modbus_free_files(modbus_file_t *files, int nb_files)
+{
+    int i, j;
+
+    if (files == NULL) {
+        return;
+    }
+
+    for (i = 0; i < nb_files; i++) {
+        for (j = 0; j < files[i].nb_records; j++) {
+            free(files[i].records[j]);
+        }
+        free(files[i].records);
+    }
+}
 /* Frees the 4 arrays */
 void modbus_mapping_free(modbus_mapping_t *mb_mapping)
 {
@@ -2019,6 +2166,8 @@ void modbus_mapping_free(modbus_mapping_t *mb_mapping)
     free(mb_mapping->tab_registers);
     free(mb_mapping->tab_input_bits);
     free(mb_mapping->tab_bits);
+    _modbus_free_files(mb_mapping->files, mb_mapping->nb_files);
+    free(mb_mapping->files);
     free(mb_mapping);
 }
 

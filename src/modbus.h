@@ -161,6 +161,12 @@ extern const unsigned int libmodbus_version_micro;
 
 typedef struct _modbus modbus_t;
 
+typedef struct {
+    int nb_records;
+    int record_size;
+    uint16_t **records;
+} modbus_file_t;
+
 typedef struct _modbus_mapping_t {
     int nb_bits;
     int start_bits;
@@ -170,10 +176,13 @@ typedef struct _modbus_mapping_t {
     int start_input_registers;
     int nb_registers;
     int start_registers;
+    int nb_files;
+    int start_files;
     uint8_t *tab_bits;
     uint8_t *tab_input_bits;
     uint16_t *tab_input_registers;
     uint16_t *tab_registers;
+    modbus_file_t *files;
 } modbus_mapping_t;
 
 typedef enum
@@ -216,6 +225,7 @@ MODBUS_API int modbus_read_registers(modbus_t *ctx, int addr, int nb, uint16_t *
 MODBUS_API int modbus_read_input_registers(modbus_t *ctx, int addr, int nb, uint16_t *dest);
 MODBUS_API int modbus_write_bit(modbus_t *ctx, int coil_addr, int status);
 MODBUS_API int modbus_write_register(modbus_t *ctx, int reg_addr, const uint16_t value);
+MODBUS_API void _modbus_free_files(modbus_file_t *files, int nb_files);
 MODBUS_API int modbus_write_bits(modbus_t *ctx, int addr, int nb, const uint8_t *data);
 MODBUS_API int modbus_write_registers(modbus_t *ctx, int addr, int nb, const uint16_t *data);
 MODBUS_API int modbus_write_file_record(modbus_t *ctx, int addr, int sub_addr, int nb, const uint16_t *src);
@@ -230,10 +240,13 @@ MODBUS_API modbus_mapping_t* modbus_mapping_new_start_address(
     unsigned int start_bits, unsigned int nb_bits,
     unsigned int start_input_bits, unsigned int nb_input_bits,
     unsigned int start_registers, unsigned int nb_registers,
-    unsigned int start_input_registers, unsigned int nb_input_registers);
+    unsigned int start_input_registers, unsigned int nb_input_registers,
+    unsigned int start_files, unsigned int nb_files,
+    unsigned int nb_records, unsigned int record_size);
 
 MODBUS_API modbus_mapping_t* modbus_mapping_new(int nb_bits, int nb_input_bits,
-                                                int nb_registers, int nb_input_registers);
+                                                int nb_registers, int nb_input_registers,
+                                                int nb_files, int nb_records, int record_size);
 MODBUS_API void modbus_mapping_free(modbus_mapping_t *mb_mapping);
 
 MODBUS_API int modbus_send_raw_request(modbus_t *ctx, const uint8_t *raw_req, int raw_req_length);
